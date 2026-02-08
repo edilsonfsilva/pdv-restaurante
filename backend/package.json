@@ -1,0 +1,36 @@
+{
+  "name": "pdv-restaurante-backend",
+  "version": "1.0.0",
+  "description": "Backend do PDV para Restaurante",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "nodemon src/app.js",
+    "test": "jest --detectOpenHandles --forceExit --testPathIgnorePatterns=setup.js"
+  },
+  "keywords": [
+    "pdv",
+    "restaurante",
+    "pos"
+  ],
+  "author": "Edilson Ferreira",
+  "license": "MIT",
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "ioredis": "^5.9.2",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.11.3",
+    "rate-limit-redis": "^4.3.1",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0",
+    "nodemon": "^3.0.1",
+    "supertest": "^7.2.2"
+  }
+}
