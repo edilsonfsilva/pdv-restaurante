@@ -13,7 +13,7 @@ async function hashPassword(password) {
   return `$cf$${saltHex}$${hashHex}`
 }
 
-async function comparePassword(password, stored) {
+export async function comparePassword(password, stored) {
   // Support bcrypt hashes from seed (starts with $2b$ or $2a$)
   if (stored.startsWith('$2b$') || stored.startsWith('$2a$')) {
     // For bcrypt hashes, we need to use a different approach

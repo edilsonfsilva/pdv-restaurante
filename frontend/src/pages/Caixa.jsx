@@ -7,8 +7,9 @@ import {
 } from 'lucide-react'
 import {
   getPedidos, getPedido, registrarPagamento,
-  fecharPedido, getResumoPagamentos
+  fecharPedido, getResumoPagamentos, cancelarPedido
 } from '../services/api'
+import { useAuth } from '../contexts/AuthContext'
 import { useSocketEvent } from '../contexts/SocketContext'
 import Pagination from '../components/Pagination'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -84,6 +85,7 @@ function FormaPagamentoBtn({ forma, isSelected, onClick }) {
 export default function Caixa() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const { user } = useAuth()
 
   const [pedidos, setPedidos] = useState([])
   const [pedidoSelecionado, setPedidoSelecionado] = useState(null)
@@ -99,6 +101,13 @@ export default function Caixa() {
   const [showConfirm, setShowConfirm] = useState(false)
   const [confirmAction, setConfirmAction] = useState(null)
   const [confirmMessage, setConfirmMessage] = useState('')
+
+  // Cancel modal state
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [cancelMotivo, setCancelMotivo] = useState('')
+  const [cancelSenha, setCancelSenha] = useState('')
+  const [cancelError, setCancelError] = useState('')
+  const [cancelando, setCancelando] = useState(false)
 
   const openConfirm = (message, action) => {
     setConfirmMessage(message)
@@ -219,6 +228,44 @@ export default function Caixa() {
       validarValorPagamento(value)
     } else {
       setValorError('')
+    }
+  }
+
+  const isSupervisor = user && ['admin', 'gerente'].includes(user.perfil)
+
+  const abrirCancelModal = () => {
+    setCancelMotivo('')
+    setCancelSenha('')
+    setCancelError('')
+    setShowCancelModal(true)
+  }
+
+  const handleCancelarPedido = async () => {
+    if (!cancelMotivo.trim()) {
+      setCancelError('Informe o motivo do cancelamento')
+      return
+    }
+    if (!cancelSenha.trim()) {
+      setCancelError('Informe sua senha de supervisor')
+      return
+    }
+
+    setCancelando(true)
+    setCancelError('')
+    try {
+      await cancelarPedido(pedidoSelecionado.id, {
+        motivo: cancelMotivo,
+        senha: cancelSenha
+      })
+      alert('Pedido cancelado com sucesso!')
+      setShowCancelModal(false)
+      setPedidoSelecionado(null)
+      carregarPedidos()
+      carregarResumo()
+    } catch (err) {
+      setCancelError(err.message)
+    } finally {
+      setCancelando(false)
     }
   }
 
@@ -460,24 +507,37 @@ export default function Caixa() {
               )}
             </div>
 
-            {/* Botao de pagamento */}
-            <button
-              onClick={handlePagamento}
-              disabled={!formaSelecionada || !valorPagamento || processando || !!valorError}
-              className="btn btn-success w-full py-4 text-lg"
-            >
-              {processando ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
-                  Processando...
-                </span>
-              ) : (
-                <span className="flex items-center justify-center gap-2">
-                  <CheckCircle size={24} />
-                  Confirmar Pagamento
-                </span>
+            {/* Botoes de acao */}
+            <div className="flex gap-3">
+              {isSupervisor && (
+                <button
+                  onClick={abrirCancelModal}
+                  className="btn btn-danger py-4 text-lg flex-shrink-0 px-6"
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    <X size={24} />
+                    Cancelar Pedido
+                  </span>
+                </button>
               )}
-            </button>
+              <button
+                onClick={handlePagamento}
+                disabled={!formaSelecionada || !valorPagamento || processando || !!valorError}
+                className="btn btn-success flex-1 py-4 text-lg"
+              >
+                {processando ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                    Processando...
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <CheckCircle size={24} />
+                    Confirmar Pagamento
+                  </span>
+                )}
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -489,6 +549,84 @@ export default function Caixa() {
           onConfirm={handleConfirm}
           onCancel={handleCancelConfirm}
         />
+      )}
+
+      {/* Modal Cancelar Pedido */}
+      {showCancelModal && pedidoSelecionado && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="card p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-red-600">Cancelar Pedido #{pedidoSelecionado.id}</h2>
+              <button onClick={() => setShowCancelModal(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-700">
+              Esta acao ira cancelar o pedido, devolver o estoque dos itens e liberar a mesa. Esta acao nao pode ser desfeita.
+            </div>
+
+            {cancelError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg mb-4 text-sm border border-red-200">
+                {cancelError}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Motivo do cancelamento *
+                </label>
+                <textarea
+                  value={cancelMotivo}
+                  onChange={e => { setCancelMotivo(e.target.value); setCancelError('') }}
+                  className="input w-full"
+                  rows={3}
+                  placeholder="Informe o motivo do cancelamento..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Senha de supervisor *
+                </label>
+                <input
+                  type="password"
+                  value={cancelSenha}
+                  onChange={e => { setCancelSenha(e.target.value); setCancelError('') }}
+                  className="input w-full"
+                  placeholder="Confirme com sua senha"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end mt-6">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="btn btn-secondary"
+              >
+                Voltar
+              </button>
+              <button
+                onClick={handleCancelarPedido}
+                disabled={cancelando}
+                className="btn btn-danger flex items-center gap-2"
+              >
+                {cancelando ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Cancelando...
+                  </>
+                ) : (
+                  <>
+                    <X size={18} />
+                    Confirmar Cancelamento
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

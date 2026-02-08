@@ -1,5 +1,7 @@
 // Pedidos routes for Cloudflare Workers (D1)
 import { json, getBody, getParams } from '../worker.js'
+import { comparePassword } from './auth.js'
+import { roleMiddleware } from '../middleware/auth.js'
 
 // Helper to recalculate order total (replaces PostgreSQL function)
 async function recalcularPedido(db, pedidoId) {
@@ -300,11 +302,35 @@ export async function pedidosRoutes(request, env, path, method, user) {
     return json(updated.results[0])
   }
 
-  // PUT /api/pedidos/:id/cancelar
+  // PUT /api/pedidos/:id/cancelar (somente admin/gerente com senha)
   const cancelarMatch = path.match(/^\/(\d+)\/cancelar$/)
   if (cancelarMatch && method === 'PUT') {
+    // Apenas admin e gerente podem cancelar
+    if (!roleMiddleware(user, 'admin', 'gerente')) {
+      return json({ error: 'Apenas supervisores podem cancelar pedidos' }, 403)
+    }
+
     const id = cancelarMatch[1]
-    const { motivo } = await getBody(request)
+    const { motivo, senha } = await getBody(request)
+
+    // Senha obrigatória para cancelamento
+    if (!senha) {
+      return json({ error: 'Senha de supervisor é obrigatória para cancelar pedidos' }, 400)
+    }
+
+    // Validar senha do supervisor logado
+    const supervisor = await env.DB.prepare(
+      'SELECT senha_hash FROM usuarios WHERE id = ? AND ativo = 1'
+    ).bind(user.id).all()
+
+    if (supervisor.results.length === 0) {
+      return json({ error: 'Supervisor não encontrado' }, 404)
+    }
+
+    const senhaValida = await comparePassword(senha, supervisor.results[0].senha_hash)
+    if (!senhaValida) {
+      return json({ error: 'Senha de supervisor incorreta' }, 403)
+    }
 
     const pedido = await env.DB.prepare('SELECT * FROM pedidos WHERE id = ?').bind(id).all()
     if (pedido.results.length === 0) return json({ error: 'Pedido não encontrado' }, 404)
@@ -324,7 +350,7 @@ export async function pedidosRoutes(request, env, path, method, user) {
     }
 
     const now = new Date().toISOString()
-    const obs = `CANCELADO: ${motivo || 'Sem motivo informado'}`
+    const obs = `CANCELADO por ${user.nome}: ${motivo || 'Sem motivo informado'}`
     const currentObs = pedido.results[0].observacao
 
     await env.DB.prepare(

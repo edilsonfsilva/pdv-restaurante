@@ -107,8 +107,8 @@ export const removerItem = (pedidoId, itemId) =>
 export const fecharPedido = (id) =>
   request(`/pedidos/${id}/fechar`, { method: 'PUT' })
 
-export const cancelarPedido = (id, motivo) =>
-  request(`/pedidos/${id}/cancelar`, { method: 'PUT', body: { motivo } })
+export const cancelarPedido = (id, { motivo, senha }) =>
+  request(`/pedidos/${id}/cancelar`, { method: 'PUT', body: { motivo, senha } })
 
 // Pagamentos
 export const getPagamentos = (params = {}) => {
@@ -172,3 +172,13 @@ export const ativarEstoque = (produtoId, data) =>
 
 export const desativarEstoque = (produtoId) =>
   request(`/estoque/${produtoId}/desativar`, { method: 'POST' })
+
+// Produtos CRUD
+export const criarProduto = (data) =>
+  request('/produtos', { method: 'POST', body: data })
+
+export const atualizarProduto = (id, data) =>
+  request(`/produtos/${id}`, { method: 'PUT', body: data })
+
+export const deletarProduto = (id) =>
+  request(`/produtos/${id}`, { method: 'DELETE' })

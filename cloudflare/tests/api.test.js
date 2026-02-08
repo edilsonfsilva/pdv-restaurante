@@ -298,13 +298,13 @@ async function testPedidos() {
   const pedidosAbertos = await api(`/pedidos?mesa_id=${mesaId}&status=aberto`)
   if (pedidosAbertos.data?.data?.length > 0) {
     for (const p of pedidosAbertos.data.data) {
-      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste' } })
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste', senha: 'admin123' } })
     }
   }
   const pedidosProducao = await api(`/pedidos?mesa_id=${mesaId}&status=producao`)
   if (pedidosProducao.data?.data?.length > 0) {
     for (const p of pedidosProducao.data.data) {
-      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste' } })
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste', senha: 'admin123' } })
     }
   }
 
@@ -416,7 +416,7 @@ async function testPedidos() {
     }
   })
 
-  await test('PUT /pedidos/:id/cancelar - cancela pedido', async () => {
+  await test('PUT /pedidos/:id/cancelar - cancela pedido com senha de supervisor', async () => {
     // Buscar status atual do pedido
     const pedidoInfo = await api(`/pedidos/${pedidoId}`)
     const pedidoStatus = pedidoInfo.data.status
@@ -424,14 +424,14 @@ async function testPedidos() {
     // Só cancela se não estiver pago
     if (pedidoStatus !== 'pago') {
       const { status, data } = await api(`/pedidos/${pedidoId}/cancelar`, {
-        method: 'PUT', body: { motivo: 'Teste automatizado' }
+        method: 'PUT', body: { motivo: 'Teste automatizado', senha: 'admin123' }
       })
       assert(status === 200, `Status esperado 200, recebido ${status}`)
       assert(data.status === 'cancelado', `Status esperado "cancelado", recebido "${data.status}"`)
     } else {
       // Se o pedido ficou pago (edge case), testar que não pode cancelar pago
       const { status } = await api(`/pedidos/${pedidoId}/cancelar`, {
-        method: 'PUT', body: { motivo: 'Teste automatizado' }
+        method: 'PUT', body: { motivo: 'Teste automatizado', senha: 'admin123' }
       })
       assert(status === 400, `Pedido pago: Status esperado 400, recebido ${status}`)
     }
@@ -449,19 +449,19 @@ async function testPagamentos() {
   const pedAbertos = await api('/pedidos?mesa_id=2&status=aberto')
   if (pedAbertos.data?.data?.length > 0) {
     for (const p of pedAbertos.data.data) {
-      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste' } })
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste', senha: 'admin123' } })
     }
   }
   const pedProd = await api('/pedidos?mesa_id=2&status=producao')
   if (pedProd.data?.data?.length > 0) {
     for (const p of pedProd.data.data) {
-      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste' } })
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste', senha: 'admin123' } })
     }
   }
   const pedPronto = await api('/pedidos?mesa_id=2&status=pronto')
   if (pedPronto.data?.data?.length > 0) {
     for (const p of pedPronto.data.data) {
-      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste' } })
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza para teste', senha: 'admin123' } })
     }
   }
 
@@ -753,7 +753,7 @@ async function testEstoque() {
 
     // Cleanup - cancelar pedido
     await api(`/pedidos/${pedido.id}/cancelar`, {
-      method: 'PUT', body: { motivo: 'teste automatizado' }
+      method: 'PUT', body: { motivo: 'teste automatizado', senha: 'admin123' }
     })
 
     // Restaurar controle se foi desativado
@@ -800,7 +800,7 @@ async function testEstoque() {
 
     // Cleanup
     await api(`/pedidos/${pedido.id}/cancelar`, {
-      method: 'PUT', body: { motivo: 'teste automatizado' }
+      method: 'PUT', body: { motivo: 'teste automatizado', senha: 'admin123' }
     })
     // Restaurar estoque
     await api(`/estoque/${prodCom.id}`, {
@@ -809,7 +809,281 @@ async function testEstoque() {
   })
 }
 
-// ─── 9. Relatórios ──────────────────────────────────────────────────────────
+// ─── 9. Garçons CRUD ────────────────────────────────────────────────────────
+
+async function testGarcons() {
+  console.log('\n👨‍🍳 GARÇONS')
+
+  let garcomId = null
+  const testEmail = `garcom.teste.${Date.now()}@teste.com`
+
+  await test('POST /auth/registro - cria novo garçom', async () => {
+    const { status, data } = await api('/auth/registro', {
+      method: 'POST',
+      body: { nome: 'Garçom Teste Auto', email: testEmail, senha: 'teste123', perfil: 'garcom' }
+    })
+    assert(status === 201, `Status esperado 201, recebido ${status}. Data: ${JSON.stringify(data)}`)
+    // /auth/registro retorna o usuario diretamente (não wrappado em { usuario })
+    assert(data.id, 'Deve retornar id do usuario')
+    assert(data.perfil === 'garcom', `Perfil esperado "garcom", recebido "${data.perfil}"`)
+    garcomId = data.id
+  })
+
+  await test('GET /auth/usuarios - garçom aparece na lista', async () => {
+    const { status, data } = await api('/auth/usuarios')
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    const garcom = data.find(u => u.id === garcomId)
+    assert(garcom, 'Garçom criado deve aparecer na lista')
+    assert(garcom.nome === 'Garçom Teste Auto', `Nome esperado "Garçom Teste Auto", recebido "${garcom.nome}"`)
+    assert(garcom.perfil === 'garcom', `Perfil esperado "garcom", recebido "${garcom.perfil}"`)
+  })
+
+  await test('PUT /auth/usuarios/:id - edita garçom', async () => {
+    assert(garcomId, 'garcomId necessário')
+    const { status, data } = await api(`/auth/usuarios/${garcomId}`, {
+      method: 'PUT', body: { nome: 'Garçom Editado Auto' }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.nome === 'Garçom Editado Auto', `Nome esperado "Garçom Editado Auto", recebido "${data.nome}"`)
+  })
+
+  await test('PUT /auth/usuarios/:id - desativa garçom (ativo=false)', async () => {
+    assert(garcomId, 'garcomId necessário')
+    const { status, data } = await api(`/auth/usuarios/${garcomId}`, {
+      method: 'PUT', body: { ativo: false }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.ativo === 0 || data.ativo === false, `Ativo esperado false/0, recebido ${data.ativo}`)
+  })
+
+  await test('PUT /auth/usuarios/:id - reativa garçom (ativo=true)', async () => {
+    assert(garcomId, 'garcomId necessário')
+    const { status, data } = await api(`/auth/usuarios/${garcomId}`, {
+      method: 'PUT', body: { ativo: true }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.ativo === 1 || data.ativo === true, `Ativo esperado true/1, recebido ${data.ativo}`)
+  })
+
+  await test('POST /auth/registro - rejeita email duplicado', async () => {
+    const { status } = await api('/auth/registro', {
+      method: 'POST',
+      body: { nome: 'Outro Garcom', email: testEmail, senha: 'teste123', perfil: 'garcom' }
+    })
+    assert(status === 400 || status === 409, `Status esperado 400 ou 409, recebido ${status}`)
+  })
+
+  // Cleanup - desativar garçom de teste
+  if (garcomId) {
+    await api(`/auth/usuarios/${garcomId}`, { method: 'PUT', body: { ativo: false } })
+  }
+}
+
+// ─── 10. Produtos CRUD ──────────────────────────────────────────────────────
+
+async function testProdutosCRUD() {
+  console.log('\n🛒 PRODUTOS CRUD')
+
+  let produtoId = null
+
+  await test('POST /produtos - cria produto com todos os campos', async () => {
+    const { status, data } = await api('/produtos', {
+      method: 'POST',
+      body: {
+        nome: 'Produto CRUD Teste',
+        codigo: 'CRUDTST01',
+        preco: 42.50,
+        categoria_id: 1,
+        descricao: 'Produto criado via teste automatizado',
+        tempo_preparo: 20
+      }
+    })
+    assert(status === 201, `Status esperado 201, recebido ${status}`)
+    assert(data.nome === 'Produto CRUD Teste', `Nome esperado "Produto CRUD Teste", recebido "${data.nome}"`)
+    assert(data.preco === 42.5, `Preço esperado 42.5, recebido ${data.preco}`)
+    assert(data.codigo === 'CRUDTST01', `Codigo esperado "CRUDTST01", recebido "${data.codigo}"`)
+    produtoId = data.id
+  })
+
+  await test('GET /produtos - produto criado aparece na lista', async () => {
+    const { status, data } = await api(`/produtos?busca=CRUDTST01`)
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    const encontrado = data.data.find(p => p.id === produtoId)
+    assert(encontrado, 'Produto criado deve aparecer na busca')
+    assert(encontrado.descricao === 'Produto criado via teste automatizado', 'Descrição deve corresponder')
+  })
+
+  await test('PUT /produtos/:id - edita produto', async () => {
+    assert(produtoId, 'produtoId necessário')
+    const { status, data } = await api(`/produtos/${produtoId}`, {
+      method: 'PUT', body: { nome: 'Produto CRUD Editado', preco: 55.00, tempo_preparo: 30 }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.nome === 'Produto CRUD Editado', `Nome esperado "Produto CRUD Editado", recebido "${data.nome}"`)
+    assert(data.preco === 55, `Preço esperado 55, recebido ${data.preco}`)
+  })
+
+  await test('DELETE /produtos/:id - desativa produto (soft delete)', async () => {
+    assert(produtoId, 'produtoId necessário')
+    const { status } = await api(`/produtos/${produtoId}`, { method: 'DELETE' })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+  })
+
+  await test('PUT /produtos/:id - reativa produto desativado', async () => {
+    assert(produtoId, 'produtoId necessário')
+    const { status, data } = await api(`/produtos/${produtoId}`, {
+      method: 'PUT', body: { ativo: true }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+  })
+
+  await test('POST /produtos - rejeita produto sem nome', async () => {
+    const { status } = await api('/produtos', {
+      method: 'POST', body: { preco: 10.00 }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  await test('POST /produtos - rejeita produto sem preço', async () => {
+    const { status } = await api('/produtos', {
+      method: 'POST', body: { nome: 'Produto Sem Preco' }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  // Cleanup - desativar produto de teste
+  if (produtoId) {
+    await api(`/produtos/${produtoId}`, { method: 'DELETE' })
+  }
+}
+
+// ─── 11. Cancelamento com Senha ─────────────────────────────────────────────
+
+async function testCancelamentoComSenha() {
+  console.log('\n🔐 CANCELAMENTO COM SENHA')
+
+  // Criar um pedido para testar cancelamento
+  // Limpar mesa 3
+  await api('/mesas/3/status', { method: 'PUT', body: { status: 'livre' } })
+  const pedAbertos3 = await api('/pedidos?mesa_id=3&status=aberto')
+  if (pedAbertos3.data?.data?.length > 0) {
+    for (const p of pedAbertos3.data.data) {
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza teste', senha: 'admin123' } })
+    }
+  }
+  const pedProd3 = await api('/pedidos?mesa_id=3&status=producao')
+  if (pedProd3.data?.data?.length > 0) {
+    for (const p of pedProd3.data.data) {
+      await api(`/pedidos/${p.id}/cancelar`, { method: 'PUT', body: { motivo: 'Limpeza teste', senha: 'admin123' } })
+    }
+  }
+
+  // Criar pedido na mesa 3
+  const { data: pedido } = await api('/pedidos', {
+    method: 'POST', body: { mesa_id: 3, tipo: 'mesa', cliente_nome: 'Teste Cancelamento' }
+  })
+  const pedidoId = pedido.id
+
+  // Adicionar item ao pedido
+  const produtos = await api('/produtos')
+  let produto = produtos.data.data.find(p => p.estoque_quantidade === null)
+  if (!produto) produto = produtos.data.data.find(p => p.estoque_quantidade >= 1)
+  if (!produto) {
+    produto = produtos.data.data[0]
+    await api(`/estoque/${produto.id}`, { method: 'PUT', body: { quantidade: 100, estoque_minimo: 5 } })
+  }
+  await api(`/pedidos/${pedidoId}/itens`, {
+    method: 'POST', body: { produto_id: produto.id, quantidade: 1 }
+  })
+
+  await test('PUT /pedidos/:id/cancelar - rejeita sem senha', async () => {
+    const { status, data } = await api(`/pedidos/${pedidoId}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Teste sem senha' }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}. Data: ${JSON.stringify(data)}`)
+  })
+
+  await test('PUT /pedidos/:id/cancelar - rejeita senha incorreta', async () => {
+    const { status, data } = await api(`/pedidos/${pedidoId}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Teste senha errada', senha: 'senhaerrada123' }
+    })
+    assert(status === 403, `Status esperado 403, recebido ${status}. Data: ${JSON.stringify(data)}`)
+  })
+
+  await test('PUT /pedidos/:id/cancelar - aceita com senha correta', async () => {
+    const { status, data } = await api(`/pedidos/${pedidoId}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Teste com senha correta', senha: 'admin123' }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}. Data: ${JSON.stringify(data)}`)
+    assert(data.status === 'cancelado', `Status esperado "cancelado", recebido "${data.status}"`)
+    assert(data.observacao && data.observacao.includes('CANCELADO por'), 'Observação deve registrar quem cancelou')
+  })
+
+  // Teste com perfil garçom (não deve conseguir cancelar)
+  await test('PUT /pedidos/:id/cancelar - garçom não pode cancelar', async () => {
+    // Criar garçom temporário com email único
+    const cancelTestEmail = `garcom.cancel.${Date.now()}@teste.com`
+    const regResult = await api('/auth/registro', {
+      method: 'POST',
+      body: { nome: 'Garcom Cancelar Teste', email: cancelTestEmail, senha: 'garcom123', perfil: 'garcom' }
+    })
+    const garcomUserId = regResult.data?.id
+
+    // Login como garçom para obter token
+    const loginResult = await api('/auth/login', {
+      method: 'POST', body: { email: cancelTestEmail, senha: 'garcom123' }
+    })
+    const garcomToken = loginResult.data?.token
+
+    if (garcomToken) {
+      // Criar outro pedido na mesa 3
+      await api('/mesas/3/status', { method: 'PUT', body: { status: 'livre' } })
+      const { data: pedido2 } = await api('/pedidos', {
+        method: 'POST', body: { mesa_id: 3, tipo: 'mesa', cliente_nome: 'Teste Garcom Cancel' }
+      })
+
+      // Tentar cancelar com token de garçom
+      const savedToken = TOKEN
+      TOKEN = garcomToken
+      const { status } = await api(`/pedidos/${pedido2.id}/cancelar`, {
+        method: 'PUT', body: { motivo: 'Garçom tentando cancelar', senha: 'garcom123' }
+      })
+      TOKEN = savedToken
+      assert(status === 403, `Garçom não deve cancelar - status esperado 403, recebido ${status}`)
+
+      // Cleanup - cancelar pedido com admin e desativar garçom
+      await api(`/pedidos/${pedido2.id}/cancelar`, { method: 'PUT', body: { motivo: 'Cleanup', senha: 'admin123' } })
+      if (garcomUserId) {
+        await api(`/auth/usuarios/${garcomUserId}`, { method: 'PUT', body: { ativo: false } })
+      }
+    }
+  })
+
+  // Teste cancelar pedido já pago
+  await test('PUT /pedidos/:id/cancelar - rejeita pedido já pago', async () => {
+    // Criar pedido, pagar e tentar cancelar
+    await api('/mesas/3/status', { method: 'PUT', body: { status: 'livre' } })
+    const { data: pedidoPago } = await api('/pedidos', {
+      method: 'POST', body: { mesa_id: 3, tipo: 'mesa', cliente_nome: 'Teste Pago Cancel' }
+    })
+    await api(`/pedidos/${pedidoPago.id}/itens`, {
+      method: 'POST', body: { produto_id: produto.id, quantidade: 1 }
+    })
+    const pedidoInfo = await api(`/pedidos/${pedidoPago.id}`)
+    const total = pedidoInfo.data.total
+    await api('/pagamentos', {
+      method: 'POST', body: { pedido_id: pedidoPago.id, valor: total, forma: 'dinheiro' }
+    })
+    await api(`/pedidos/${pedidoPago.id}/fechar`, { method: 'PUT' })
+
+    const { status } = await api(`/pedidos/${pedidoPago.id}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Tentar cancelar pago', senha: 'admin123' }
+    })
+    assert(status === 400, `Pedido pago não deve ser cancelável - status esperado 400, recebido ${status}`)
+  })
+}
+
+// ─── 12. Relatórios ─────────────────────────────────────────────────────────
 
 async function testRelatorios() {
   console.log('\n📊 RELATÓRIOS')
@@ -853,7 +1127,7 @@ async function testRelatorios() {
   })
 }
 
-// ─── 10. Segurança ──────────────────────────────────────────────────────────
+// ─── 13. Segurança ──────────────────────────────────────────────────────────
 
 async function testSeguranca() {
   console.log('\n🛡️  SEGURANÇA')
@@ -904,6 +1178,9 @@ async function runAllTests() {
   await testPedidos()
   await testPagamentos()
   await testEstoque()
+  await testGarcons()
+  await testProdutosCRUD()
+  await testCancelamentoComSenha()
   await testRelatorios()
   await testSeguranca()
 

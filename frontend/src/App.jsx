@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom'
-import { LayoutGrid, UtensilsCrossed, MonitorPlay, CreditCard, BarChart3, Package, LogOut, User } from 'lucide-react'
+import { LayoutGrid, UtensilsCrossed, MonitorPlay, CreditCard, BarChart3, Package, LogOut, User, Users, ShoppingBag } from 'lucide-react'
 
 // Pages
 import Mesas from './pages/Mesas'
@@ -9,6 +9,8 @@ import Caixa from './pages/Caixa'
 import Login from './pages/Login'
 import Relatorios from './pages/Relatorios'
 import Estoque from './pages/Estoque'
+import Garcons from './pages/Garcons'
+import Produtos from './pages/Produtos'
 
 // Contexto global
 import { SocketProvider } from './contexts/SocketContext'
@@ -24,6 +26,8 @@ const allNavLinks = [
   { to: '/caixa', icon: CreditCard, label: 'Caixa', roles: ['admin', 'gerente', 'caixa'] },
   { to: '/relatorios', icon: BarChart3, label: 'Relatorios', roles: ['admin', 'gerente'] },
   { to: '/estoque', icon: Package, label: 'Estoque', roles: ['admin', 'gerente'] },
+  { to: '/produtos', icon: ShoppingBag, label: 'Produtos', roles: ['admin', 'gerente'] },
+  { to: '/garcons', icon: Users, label: 'Garcons', roles: ['admin', 'gerente'] },
 ]
 
 function NavLink({ to, icon: Icon, children }) {
@@ -143,6 +147,16 @@ function App() {
             <Route path="/estoque" element={
               <ProtectedRoute roles={['admin', 'gerente']}>
                 <Layout><Estoque /></Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/produtos" element={
+              <ProtectedRoute roles={['admin', 'gerente']}>
+                <Layout><Produtos /></Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/garcons" element={
+              <ProtectedRoute roles={['admin', 'gerente']}>
+                <Layout><Garcons /></Layout>
               </ProtectedRoute>
             } />
           </Routes>
