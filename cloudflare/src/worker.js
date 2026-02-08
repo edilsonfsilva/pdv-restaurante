@@ -6,6 +6,7 @@ import { mesasRoutes } from './routes/mesas.js'
 import { pedidosRoutes } from './routes/pedidos.js'
 import { pagamentosRoutes } from './routes/pagamentos.js'
 import { relatoriosRoutes } from './routes/relatorios.js'
+import { estoqueRoutes } from './routes/estoque.js'
 import { authMiddleware, roleMiddleware } from './middleware/auth.js'
 
 export default {
@@ -81,6 +82,14 @@ async function handleAPI(request, env, url) {
     // Pagamentos
     if (path.startsWith('/pagamentos')) {
       return pagamentosRoutes(request, env, path.replace('/pagamentos', ''), method, user)
+    }
+
+    // Estoque (admin/gerente only)
+    if (path.startsWith('/estoque')) {
+      if (!roleMiddleware(user, 'admin', 'gerente')) {
+        return json({ error: 'Acesso negado' }, 403)
+      }
+      return estoqueRoutes(request, env, path.replace('/estoque', ''), method, user)
     }
 
     // Relatorios (admin/gerente only)
