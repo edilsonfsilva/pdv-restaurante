@@ -6,7 +6,8 @@ export async function estoqueRoutes(request, env, path, method, user) {
   if (path === '/alertas' && method === 'GET') {
     const result = await env.DB.prepare(`
       SELECT p.id, p.codigo, p.nome, p.estoque_quantidade, p.estoque_minimo,
-        c.nome as categoria
+        CASE WHEN p.estoque_quantidade IS NOT NULL THEN 1 ELSE 0 END as controle_estoque,
+        c.nome as categoria, c.nome as categoria_nome
       FROM produtos p
       LEFT JOIN categorias c ON p.categoria_id = c.id
       WHERE p.estoque_quantidade IS NOT NULL
@@ -19,15 +20,16 @@ export async function estoqueRoutes(request, env, path, method, user) {
     return json(result.results)
   }
 
-  // GET /api/estoque - Listar produtos com estoque
+  // GET /api/estoque - Listar TODOS os produtos ativos (com e sem controle)
   if ((path === '' || path === '/') && method === 'GET') {
     const params = getParams(request.url)
     const { baixo_estoque, busca } = params
 
-    let whereClauses = ['p.estoque_quantidade IS NOT NULL']
+    let whereClauses = ['p.ativo = 1']
     let binds = []
 
     if (baixo_estoque === 'true') {
+      whereClauses.push('p.estoque_quantidade IS NOT NULL')
       whereClauses.push('p.estoque_quantidade <= p.estoque_minimo')
     }
 
@@ -41,12 +43,15 @@ export async function estoqueRoutes(request, env, path, method, user) {
     const result = await env.DB.prepare(`
       SELECT p.id, p.codigo, p.nome, p.preco, p.ativo,
         p.estoque_quantidade, p.estoque_minimo,
-        c.nome as categoria
+        CASE WHEN p.estoque_quantidade IS NOT NULL THEN 1 ELSE 0 END as controle_estoque,
+        c.nome as categoria, c.nome as categoria_nome
       FROM produtos p
       LEFT JOIN categorias c ON p.categoria_id = c.id
       ${whereStr}
       ORDER BY
-        CASE WHEN p.estoque_quantidade <= COALESCE(p.estoque_minimo, 0) THEN 0 ELSE 1 END,
+        CASE WHEN p.estoque_quantidade IS NOT NULL AND p.estoque_quantidade <= COALESCE(p.estoque_minimo, 0) THEN 0
+             WHEN p.estoque_quantidade IS NULL THEN 2
+             ELSE 1 END,
         p.nome
     `).bind(...binds).all()
 
@@ -87,7 +92,8 @@ export async function estoqueRoutes(request, env, path, method, user) {
     const result = await env.DB.prepare(
       `UPDATE produtos SET ${fields.join(', ')}
        WHERE id = ?
-       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo`
+       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo,
+         CASE WHEN estoque_quantidade IS NOT NULL THEN 1 ELSE 0 END as controle_estoque`
     ).bind(...values).all()
 
     if (result.results.length === 0) return json({ error: 'Produto não encontrado' }, 404)
@@ -105,7 +111,8 @@ export async function estoqueRoutes(request, env, path, method, user) {
       `UPDATE produtos
        SET estoque_quantidade = ?, estoque_minimo = ?
        WHERE id = ?
-       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo`
+       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo,
+         1 as controle_estoque`
     ).bind(quantidade, estoque_minimo, produtoId).all()
 
     if (result.results.length === 0) return json({ error: 'Produto não encontrado' }, 404)
@@ -122,7 +129,8 @@ export async function estoqueRoutes(request, env, path, method, user) {
       `UPDATE produtos
        SET estoque_quantidade = NULL, estoque_minimo = NULL
        WHERE id = ?
-       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo`
+       RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo,
+         0 as controle_estoque`
     ).bind(produtoId).all()
 
     if (result.results.length === 0) return json({ error: 'Produto não encontrado' }, 404)
@@ -142,14 +150,16 @@ export async function estoqueRoutes(request, env, path, method, user) {
         `UPDATE produtos
          SET estoque_quantidade = COALESCE(estoque_quantidade, 0), estoque_minimo = COALESCE(estoque_minimo, 5)
          WHERE id = ?
-         RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo`
+         RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo,
+           1 as controle_estoque`
       ).bind(produtoId).all()
     } else {
       result = await env.DB.prepare(
         `UPDATE produtos
          SET estoque_quantidade = NULL, estoque_minimo = NULL
          WHERE id = ?
-         RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo`
+         RETURNING id, nome, codigo, estoque_quantidade, estoque_minimo,
+           0 as controle_estoque`
       ).bind(produtoId).all()
     }
 

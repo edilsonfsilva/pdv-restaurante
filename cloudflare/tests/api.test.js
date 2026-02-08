@@ -547,30 +547,67 @@ async function testPagamentos() {
 async function testEstoque() {
   console.log('\n📦 ESTOQUE')
 
+  // --- 8.1 GET /estoque - Listagem básica ---
   await test('GET /estoque - lista produtos com estoque', async () => {
     const { status, data } = await api('/estoque')
     assert(status === 200, `Status esperado 200, recebido ${status}`)
     assert(Array.isArray(data), 'Resposta deve ser array')
   })
 
+  // --- 8.2 GET /estoque retorna TODOS os produtos (com e sem controle) ---
+  await test('GET /estoque - inclui produtos sem controle de estoque', async () => {
+    const { status, data } = await api('/estoque')
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    const semControle = data.filter(p => p.estoque_quantidade === null)
+    const comControle = data.filter(p => p.estoque_quantidade !== null)
+    // Deve ter ambos os tipos (com e sem controle)
+    const totalProdutos = await api('/produtos?limit=200')
+    const totalAtivos = (totalProdutos.data.data || []).filter(p => p.ativo === 1).length
+    assert(data.length === totalAtivos,
+      `Estoque deve listar todos os ${totalAtivos} produtos ativos, listou ${data.length}`)
+  })
+
+  // --- 8.3 GET /estoque retorna campo controle_estoque ---
+  await test('GET /estoque - retorna campo controle_estoque', async () => {
+    const { status, data } = await api('/estoque')
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.length > 0, 'Deve ter produtos')
+    // Verificar que TODOS os produtos têm o campo controle_estoque
+    data.forEach(p => {
+      assert('controle_estoque' in p,
+        `Produto "${p.nome}" (id=${p.id}) não tem campo controle_estoque`)
+    })
+    // Produtos com estoque_quantidade != null devem ter controle_estoque = 1
+    const comEstoque = data.filter(p => p.estoque_quantidade !== null)
+    comEstoque.forEach(p => {
+      assert(p.controle_estoque === 1,
+        `Produto "${p.nome}" com estoque deve ter controle_estoque=1, tem ${p.controle_estoque}`)
+    })
+    // Produtos com estoque_quantidade = null devem ter controle_estoque = 0
+    const semEstoque = data.filter(p => p.estoque_quantidade === null)
+    semEstoque.forEach(p => {
+      assert(p.controle_estoque === 0,
+        `Produto "${p.nome}" sem estoque deve ter controle_estoque=0, tem ${p.controle_estoque}`)
+    })
+  })
+
+  // --- 8.4 Alertas ---
   await test('GET /estoque/alertas - lista produtos em baixo estoque', async () => {
     const { status, data } = await api('/estoque/alertas')
     assert(status === 200, `Status esperado 200, recebido ${status}`)
     assert(Array.isArray(data), 'Resposta deve ser array')
-    // Todos devem ter estoque <= minimo
     data.forEach(p => {
       assert(p.estoque_quantidade <= p.estoque_minimo,
         `Produto ${p.nome}: estoque ${p.estoque_quantidade} > minimo ${p.estoque_minimo}`)
     })
   })
 
-  // Testar com um produto que tem estoque
+  // --- 8.5 Atualizar estoque ---
   const estoque = await api('/estoque')
-  if (estoque.data.length > 0) {
-    const produtoEstoque = estoque.data[0]
-
+  const produtoComControle = estoque.data.find(p => p.estoque_quantidade !== null)
+  if (produtoComControle) {
     await test('PUT /estoque/:id - atualiza quantidade do estoque', async () => {
-      const { status, data } = await api(`/estoque/${produtoEstoque.id}`, {
+      const { status, data } = await api(`/estoque/${produtoComControle.id}`, {
         method: 'PUT', body: { quantidade: 50, estoque_minimo: 10 }
       })
       assert(status === 200, `Status esperado 200, recebido ${status}`)
@@ -578,46 +615,197 @@ async function testEstoque() {
       assert(data.estoque_minimo === 10, `Mínimo esperado 10, recebido ${data.estoque_minimo}`)
 
       // Restaurar valor original
-      await api(`/estoque/${produtoEstoque.id}`, {
+      await api(`/estoque/${produtoComControle.id}`, {
         method: 'PUT',
-        body: { quantidade: produtoEstoque.estoque_quantidade, estoque_minimo: produtoEstoque.estoque_minimo }
+        body: { quantidade: produtoComControle.estoque_quantidade, estoque_minimo: produtoComControle.estoque_minimo }
       })
     })
 
     await test('PUT /estoque/:id - rejeita quantidade negativa', async () => {
-      const { status } = await api(`/estoque/${produtoEstoque.id}`, {
+      const { status } = await api(`/estoque/${produtoComControle.id}`, {
         method: 'PUT', body: { quantidade: -5 }
       })
       assert(status === 400, `Status esperado 400, recebido ${status}`)
     })
   }
 
-  // Testar ativar/desativar com produto de teste
-  const produtos = await api('/produtos')
-  const prodSemEstoque = produtos.data.data.find(p => p.estoque_quantidade === null)
+  // --- 8.6 Toggle controle de estoque (PUT /controle) ---
+  const prodSemControle = estoque.data.find(p => p.estoque_quantidade === null)
 
-  if (prodSemEstoque) {
+  if (prodSemControle) {
+    await test('PUT /estoque/:id/controle - ativa controle de estoque', async () => {
+      const { status, data } = await api(`/estoque/${prodSemControle.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: true }
+      })
+      assert(status === 200, `Status esperado 200, recebido ${status}`)
+      assert(data.controle_estoque === 1,
+        `controle_estoque deve ser 1, recebido ${data.controle_estoque}`)
+      assert(data.estoque_quantidade !== null,
+        `estoque_quantidade deve ser != null após ativar, recebido ${data.estoque_quantidade}`)
+      assert(data.estoque_minimo !== null,
+        `estoque_minimo deve ser != null após ativar, recebido ${data.estoque_minimo}`)
+    })
+
+    await test('PUT /estoque/:id/controle - desativa controle de estoque', async () => {
+      const { status, data } = await api(`/estoque/${prodSemControle.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: false }
+      })
+      assert(status === 200, `Status esperado 200, recebido ${status}`)
+      assert(data.controle_estoque === 0,
+        `controle_estoque deve ser 0, recebido ${data.controle_estoque}`)
+      assert(data.estoque_quantidade === null,
+        `estoque_quantidade deve ser null após desativar, recebido ${data.estoque_quantidade}`)
+      assert(data.estoque_minimo === null,
+        `estoque_minimo deve ser null após desativar, recebido ${data.estoque_minimo}`)
+    })
+
+    await test('PUT /estoque/:id/controle - toggle persiste no GET /estoque', async () => {
+      // Ativar
+      await api(`/estoque/${prodSemControle.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: true }
+      })
+      // Verificar no GET
+      const { data: estoqueAtual } = await api('/estoque')
+      const prodAtivado = estoqueAtual.find(p => p.id === prodSemControle.id)
+      assert(prodAtivado, `Produto ${prodSemControle.id} deve aparecer no GET /estoque`)
+      assert(prodAtivado.controle_estoque === 1,
+        `Produto ativado deve ter controle_estoque=1 no GET, tem ${prodAtivado.controle_estoque}`)
+      assert(prodAtivado.estoque_quantidade !== null,
+        `Produto ativado deve ter estoque_quantidade != null no GET`)
+
+      // Desativar de volta
+      await api(`/estoque/${prodSemControle.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: false }
+      })
+      // Verificar persistência da desativação
+      const { data: estoqueDepois } = await api('/estoque')
+      const prodDesativado = estoqueDepois.find(p => p.id === prodSemControle.id)
+      assert(prodDesativado, `Produto ${prodSemControle.id} deve continuar no GET /estoque mesmo sem controle`)
+      assert(prodDesativado.controle_estoque === 0,
+        `Produto desativado deve ter controle_estoque=0 no GET, tem ${prodDesativado.controle_estoque}`)
+      assert(prodDesativado.estoque_quantidade === null,
+        `Produto desativado deve ter estoque_quantidade=null no GET`)
+    })
+  }
+
+  // --- 8.7 Ativar/Desativar (POST) ---
+  const prodParaAtivar = estoque.data.find(p => p.estoque_quantidade === null && p.id !== (prodSemControle?.id))
+    || prodSemControle
+  if (prodParaAtivar) {
     await test('POST /estoque/:id/ativar - ativa controle de estoque', async () => {
-      const { status, data } = await api(`/estoque/${prodSemEstoque.id}/ativar`, {
+      const { status, data } = await api(`/estoque/${prodParaAtivar.id}/ativar`, {
         method: 'POST', body: { quantidade: 20, estoque_minimo: 5 }
       })
       assert(status === 200, `Status esperado 200, recebido ${status}`)
       assert(data.estoque_quantidade === 20, 'Quantidade deve ser 20')
+      assert(data.controle_estoque === 1, 'controle_estoque deve ser 1')
     })
 
     await test('POST /estoque/:id/desativar - desativa controle de estoque', async () => {
-      const { status, data } = await api(`/estoque/${prodSemEstoque.id}/desativar`, {
+      const { status, data } = await api(`/estoque/${prodParaAtivar.id}/desativar`, {
         method: 'POST'
       })
       assert(status === 200, `Status esperado 200, recebido ${status}`)
       assert(data.estoque_quantidade === null, 'Quantidade deve ser null')
+      assert(data.controle_estoque === 0, 'controle_estoque deve ser 0')
     })
   }
 
+  // --- 8.8 Busca ---
   await test('GET /estoque - busca por nome', async () => {
-    const { status, data } = await api('/estoque?busca=Coca')
+    const { status, data } = await api('/estoque?busca=Carne')
     assert(status === 200, `Status esperado 200, recebido ${status}`)
     assert(Array.isArray(data), 'Resposta deve ser array')
+  })
+
+  // --- 8.9 Produto sem controle NÃO bloqueia adição ao pedido ---
+  await test('Produto sem controle de estoque pode ser adicionado ao pedido', async () => {
+    // Garantir que temos um produto sem controle
+    const { data: produtosEstoque } = await api('/estoque')
+    let prodSem = produtosEstoque.find(p => p.estoque_quantidade === null)
+
+    if (!prodSem) {
+      // Se não há produto sem controle, desativar um temporariamente
+      const primeiroProd = produtosEstoque[0]
+      await api(`/estoque/${primeiroProd.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: false }
+      })
+      prodSem = primeiroProd
+    }
+
+    // Buscar mesa livre
+    const { data: mesas } = await api('/mesas')
+    const mesaLivre = (Array.isArray(mesas) ? mesas : mesas.data || []).find(m => m.status === 'livre')
+    assert(mesaLivre, 'Deve ter mesa livre para teste')
+
+    // Criar pedido
+    const { status: pedidoStatus, data: pedido } = await api('/pedidos', {
+      method: 'POST', body: { mesa_id: mesaLivre.id }
+    })
+    assert(pedidoStatus === 201, `Pedido deve ser criado, status ${pedidoStatus}`)
+
+    // Adicionar produto SEM controle - NÃO deve bloquear
+    const { status: itemStatus, data: itemData } = await api(`/pedidos/${pedido.id}/itens`, {
+      method: 'POST', body: { produto_id: prodSem.id, quantidade: 1 }
+    })
+    assert(itemStatus === 201,
+      `Produto sem controle deve ser aceito (201), recebido ${itemStatus}: ${JSON.stringify(itemData)}`)
+
+    // Cleanup - cancelar pedido
+    await api(`/pedidos/${pedido.id}/cancelar`, {
+      method: 'PUT', body: { motivo: 'teste automatizado' }
+    })
+
+    // Restaurar controle se foi desativado
+    if (!produtosEstoque.find(p => p.estoque_quantidade === null)) {
+      await api(`/estoque/${prodSem.id}/controle`, {
+        method: 'PUT', body: { controle_estoque: true }
+      })
+    }
+  })
+
+  // --- 8.10 Produto COM controle e estoque insuficiente BLOQUEIA ---
+  await test('Produto com controle e estoque insuficiente bloqueia adição ao pedido', async () => {
+    // Encontrar produto com controle
+    const { data: produtosEstoque } = await api('/estoque')
+    let prodCom = produtosEstoque.find(p => p.estoque_quantidade !== null)
+
+    if (!prodCom) return // Skip se não há produto com controle
+
+    // Anotar estoque original
+    const estoqueOriginal = prodCom.estoque_quantidade
+    const minimoOriginal = prodCom.estoque_minimo
+
+    // Setar estoque para 0
+    await api(`/estoque/${prodCom.id}`, {
+      method: 'PUT', body: { quantidade: 0 }
+    })
+
+    // Buscar mesa livre
+    const { data: mesas } = await api('/mesas')
+    const mesaLivre = (Array.isArray(mesas) ? mesas : mesas.data || []).find(m => m.status === 'livre')
+    assert(mesaLivre, 'Deve ter mesa livre para teste')
+
+    // Criar pedido
+    const { data: pedido } = await api('/pedidos', {
+      method: 'POST', body: { mesa_id: mesaLivre.id }
+    })
+
+    // Tentar adicionar produto com estoque 0 - DEVE bloquear
+    const { status: itemStatus } = await api(`/pedidos/${pedido.id}/itens`, {
+      method: 'POST', body: { produto_id: prodCom.id, quantidade: 1 }
+    })
+    assert(itemStatus === 400,
+      `Produto com estoque zerado deve ser rejeitado (400), recebido ${itemStatus}`)
+
+    // Cleanup
+    await api(`/pedidos/${pedido.id}/cancelar`, {
+      method: 'PUT', body: { motivo: 'teste automatizado' }
+    })
+    // Restaurar estoque
+    await api(`/estoque/${prodCom.id}`, {
+      method: 'PUT', body: { quantidade: estoqueOriginal, estoque_minimo: minimoOriginal }
+    })
   })
 }
 
