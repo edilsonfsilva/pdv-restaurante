@@ -7,6 +7,7 @@ import { pedidosRoutes } from './routes/pedidos.js'
 import { pagamentosRoutes } from './routes/pagamentos.js'
 import { relatoriosRoutes } from './routes/relatorios.js'
 import { estoqueRoutes } from './routes/estoque.js'
+import { areasRoutes } from './routes/areas.js'
 import { authMiddleware, roleMiddleware } from './middleware/auth.js'
 
 export default {
@@ -58,6 +59,11 @@ async function handleAPI(request, env, url) {
     // Protected routes - require auth
     const user = await authMiddleware(request, env)
     if (!user) return json({ error: 'Token não fornecido ou inválido' }, 401)
+
+    // Areas
+    if (path.startsWith('/areas')) {
+      return areasRoutes(request, env, path.replace('/areas', ''), method, user)
+    }
 
     // Categorias
     if (path.startsWith('/categorias')) {

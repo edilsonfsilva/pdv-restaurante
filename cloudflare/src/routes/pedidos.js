@@ -273,6 +273,65 @@ export async function pedidosRoutes(request, env, path, method, user) {
     return json({ message: 'Item removido', item: item.results[0] })
   }
 
+  // POST /api/pedidos/:id/transferir — Transfer order to another table
+  const transferirMatch = path.match(/^\/(\d+)\/transferir$/)
+  if (transferirMatch && method === 'POST') {
+    const id = transferirMatch[1]
+    const { mesa_destino_id } = await getBody(request)
+
+    if (!mesa_destino_id) {
+      return json({ error: 'mesa_destino_id é obrigatório' }, 400)
+    }
+
+    // Validate pedido exists and is active
+    const pedido = await env.DB.prepare(
+      'SELECT * FROM pedidos WHERE id = ?'
+    ).bind(id).all()
+
+    if (pedido.results.length === 0) {
+      return json({ error: 'Pedido não encontrado' }, 404)
+    }
+
+    if (!['aberto', 'producao', 'pronto'].includes(pedido.results[0].status)) {
+      return json({ error: 'Só é possível transferir pedidos ativos' }, 400)
+    }
+
+    // Validate destination mesa exists and is free
+    const mesaDestino = await env.DB.prepare(
+      'SELECT * FROM mesas WHERE id = ?'
+    ).bind(mesa_destino_id).all()
+
+    if (mesaDestino.results.length === 0) {
+      return json({ error: 'Mesa de destino não encontrada' }, 404)
+    }
+
+    if (mesaDestino.results[0].status !== 'livre') {
+      return json({ error: 'Mesa de destino não está livre' }, 400)
+    }
+
+    const mesaOrigemId = pedido.results[0].mesa_id
+
+    // Transfer: update pedido mesa_id
+    await env.DB.prepare(
+      'UPDATE pedidos SET mesa_id = ? WHERE id = ?'
+    ).bind(mesa_destino_id, id).run()
+
+    // Update origin mesa to free
+    if (mesaOrigemId) {
+      await env.DB.prepare(
+        "UPDATE mesas SET status = 'livre' WHERE id = ?"
+      ).bind(mesaOrigemId).run()
+    }
+
+    // Update destination mesa to occupied
+    await env.DB.prepare(
+      "UPDATE mesas SET status = 'ocupada' WHERE id = ?"
+    ).bind(mesa_destino_id).run()
+
+    const updated = await env.DB.prepare('SELECT * FROM pedidos WHERE id = ?').bind(id).all()
+    return json(updated.results[0])
+  }
+
   // PUT /api/pedidos/:id/fechar
   const fecharMatch = path.match(/^\/(\d+)\/fechar$/)
   if (fecharMatch && method === 'PUT') {

@@ -1083,7 +1083,363 @@ async function testCancelamentoComSenha() {
   })
 }
 
-// ─── 12. Relatórios ─────────────────────────────────────────────────────────
+// ─── 12. Áreas CRUD ────────────────────────────────────────────────────────
+
+async function testAreas() {
+  console.log('\n🗺️  ÁREAS')
+
+  let areaId = null
+  let areaId2 = null
+  const areaNome = `Área Teste ${Date.now()}`
+  const areaNome2 = `Área Teste2 ${Date.now()}`
+
+  await test('POST /areas - cria nova área', async () => {
+    const { status, data } = await api('/areas', {
+      method: 'POST', body: { nome: areaNome, descricao: 'Área criada por teste' }
+    })
+    assert(status === 201, `Status esperado 201, recebido ${status}`)
+    assert(data.id, 'Deve retornar id da área')
+    assert(data.nome === areaNome, `Nome esperado "${areaNome}", recebido "${data.nome}"`)
+    areaId = data.id
+  })
+
+  await test('POST /areas - cria segunda área', async () => {
+    const { status, data } = await api('/areas', {
+      method: 'POST', body: { nome: areaNome2 }
+    })
+    assert(status === 201, `Status esperado 201, recebido ${status}`)
+    areaId2 = data.id
+  })
+
+  await test('POST /areas - rejeita sem nome', async () => {
+    const { status } = await api('/areas', {
+      method: 'POST', body: { descricao: 'Sem nome' }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  await test('POST /areas - rejeita nome duplicado', async () => {
+    const { status } = await api('/areas', {
+      method: 'POST', body: { nome: areaNome }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  await test('GET /areas - lista áreas', async () => {
+    const { status, data } = await api('/areas')
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(Array.isArray(data), 'Resposta deve ser array')
+    const found = data.find(a => a.id === areaId)
+    assert(found, 'Área criada deve aparecer na lista')
+  })
+
+  await test('GET /areas/:id - busca área por id', async () => {
+    const { status, data } = await api(`/areas/${areaId}`)
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.nome === areaNome, 'Nome deve corresponder')
+    assert('mesas' in data, 'Deve ter campo mesas')
+    assert(Array.isArray(data.mesas), 'Mesas deve ser array')
+  })
+
+  await test('PUT /areas/:id - edita área', async () => {
+    const { status, data } = await api(`/areas/${areaId}`, {
+      method: 'PUT', body: { nome: areaNome + ' Editada', descricao: 'Descrição editada' }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.descricao === 'Descrição editada', 'Descrição deve ser atualizada')
+  })
+
+  await test('PUT /areas/:id - desativa área (ativo=0)', async () => {
+    const { status, data } = await api(`/areas/${areaId}`, {
+      method: 'PUT', body: { ativo: 0 }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.ativo === 0 || data.ativo === false, 'Área deve estar inativa')
+  })
+
+  await test('PUT /areas/:id - reativa área (ativo=1)', async () => {
+    const { status, data } = await api(`/areas/${areaId}`, {
+      method: 'PUT', body: { ativo: 1 }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.ativo === 1 || data.ativo === true, 'Área deve estar ativa')
+  })
+
+  // Deletar área2 (sem mesas) deve funcionar
+  await test('DELETE /areas/:id - remove área sem mesas', async () => {
+    const { status } = await api(`/areas/${areaId2}`, { method: 'DELETE' })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+  })
+
+  // Guardar areaId para uso nos testes de MesasAreas
+  globalThis.__testAreaId = areaId
+  globalThis.__testAreaNome = areaNome + ' Editada'
+}
+
+// ─── 13. Mesas & Áreas ─────────────────────────────────────────────────────
+
+async function testMesasAreas() {
+  console.log('\n🪑 MESAS & ÁREAS')
+
+  const areaId = globalThis.__testAreaId
+  let mesaId = null
+  const mesaNumero = `MA${Date.now()}`
+
+  // Criar outra área para teste de mover mesa
+  const { data: area2 } = await api('/areas', {
+    method: 'POST', body: { nome: `Área Mover ${Date.now()}` }
+  })
+  const areaId2 = area2?.id
+
+  await test('POST /mesas - cria mesa com area_id', async () => {
+    const { status, data } = await api('/mesas', {
+      method: 'POST', body: { numero: mesaNumero, capacidade: 8, area_id: areaId }
+    })
+    assert(status === 201, `Status esperado 201, recebido ${status}`)
+    assert(data.id, 'Deve retornar id da mesa')
+    assert(data.area_id === areaId || data.area_id == areaId, `area_id esperado ${areaId}, recebido ${data.area_id}`)
+    mesaId = data.id
+  })
+
+  await test('PUT /mesas/:id - edita mesa (numero, capacidade)', async () => {
+    const { status, data } = await api(`/mesas/${mesaId}`, {
+      method: 'PUT', body: { capacidade: 10 }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.capacidade === 10, `Capacidade esperada 10, recebida ${data.capacidade}`)
+  })
+
+  await test('PUT /mesas/:id - move mesa para outra área', async () => {
+    assert(areaId2, 'Área 2 deve existir')
+    const { status, data } = await api(`/mesas/${mesaId}`, {
+      method: 'PUT', body: { area_id: areaId2 }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.area_id === areaId2 || data.area_id == areaId2, `area_id esperado ${areaId2}, recebido ${data.area_id}`)
+  })
+
+  await test('PUT /mesas/:id - remove mesa de área (area_id=null)', async () => {
+    const { status, data } = await api(`/mesas/${mesaId}`, {
+      method: 'PUT', body: { area_id: null }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.area_id === null || data.area_id === undefined, `area_id esperado null, recebido ${data.area_id}`)
+  })
+
+  // Mover mesa de volta para área1 para testes seguintes
+  await api(`/mesas/${mesaId}`, { method: 'PUT', body: { area_id: areaId } })
+
+  await test('GET /mesas - retorno inclui area_id e area_nome', async () => {
+    const { status, data } = await api('/mesas')
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    const mesa = data.find(m => m.id === mesaId)
+    assert(mesa, 'Mesa criada deve aparecer na lista')
+    assert('area_id' in mesa, 'Deve ter campo area_id')
+    assert('area_nome' in mesa, 'Deve ter campo area_nome')
+  })
+
+  await test('GET /mesas?area_id=X - filtra mesas por área', async () => {
+    const { status, data } = await api(`/mesas?area_id=${areaId}`)
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(Array.isArray(data), 'Resposta deve ser array')
+    const todas = data.every(m => m.area_id === areaId || m.area_id == areaId)
+    assert(todas, 'Todas as mesas devem pertencer à área filtrada')
+  })
+
+  await test('GET /areas/:id - retorna mesas da área', async () => {
+    const { status, data } = await api(`/areas/${areaId}`)
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(Array.isArray(data.mesas), 'Deve ter array de mesas')
+    const found = data.mesas.find(m => m.id === mesaId)
+    assert(found, 'Mesa deve aparecer na área')
+  })
+
+  await test('POST /mesas - rejeita número duplicado', async () => {
+    const { status } = await api('/mesas', {
+      method: 'POST', body: { numero: mesaNumero, capacidade: 4 }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  // Testar rejeição de remover mesa com pedido ativo
+  // Criar pedido na mesa para bloquear delete
+  await api(`/mesas/${mesaId}/status`, { method: 'PUT', body: { status: 'livre' } })
+  const { data: pedidoTemp } = await api('/pedidos', {
+    method: 'POST', body: { mesa_id: mesaId, tipo: 'mesa', cliente_nome: 'Block Delete' }
+  })
+
+  await test('DELETE /mesas/:id - rejeita remover mesa com pedido ativo', async () => {
+    const { status } = await api(`/mesas/${mesaId}`, { method: 'DELETE' })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  // Cancelar pedido e limpar
+  if (pedidoTemp?.id) {
+    await api(`/pedidos/${pedidoTemp.id}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Limpeza teste', senha: 'admin123' }
+    })
+  }
+
+  await test('DELETE /mesas/:id - remove mesa livre', async () => {
+    const { status } = await api(`/mesas/${mesaId}`, { method: 'DELETE' })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+  })
+
+  // Agora podemos deletar a área1 (sem mesas) - teste DELETE /areas com mesas
+  // Primeiro criar uma mesa na area2 para testar bloqueio
+  const { data: mesaBlock } = await api('/mesas', {
+    method: 'POST', body: { numero: `BLK${Date.now()}`, area_id: areaId2 }
+  })
+
+  await test('DELETE /areas/:id - rejeita remover área com mesas', async () => {
+    const { status } = await api(`/areas/${areaId2}`, { method: 'DELETE' })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  // Limpar mesa de bloqueio e área2
+  if (mesaBlock?.id) {
+    await api(`/mesas/${mesaBlock.id}`, { method: 'DELETE' })
+  }
+  if (areaId2) {
+    await api(`/areas/${areaId2}`, { method: 'DELETE' })
+  }
+
+  // Limpar areaId (seção 12)
+  if (areaId) {
+    await api(`/areas/${areaId}`, { method: 'DELETE' })
+  }
+}
+
+// ─── 14. Transferência de Mesa ──────────────────────────────────────────────
+
+async function testTransferenciaMesa() {
+  console.log('\n🔄 TRANSFERÊNCIA DE MESA')
+
+  // Setup: Criar 2 mesas para transferência
+  const mesaNumA = `TRA${Date.now()}`
+  const mesaNumB = `TRB${Date.now()}`
+
+  const { data: mesaA } = await api('/mesas', {
+    method: 'POST', body: { numero: mesaNumA, capacidade: 4 }
+  })
+  const { data: mesaB } = await api('/mesas', {
+    method: 'POST', body: { numero: mesaNumB, capacidade: 4 }
+  })
+  const mesaAId = mesaA?.id
+  const mesaBId = mesaB?.id
+
+  // Criar pedido na mesa A
+  await api(`/mesas/${mesaAId}/status`, { method: 'PUT', body: { status: 'livre' } })
+  const { data: pedido } = await api('/pedidos', {
+    method: 'POST', body: { mesa_id: mesaAId, tipo: 'mesa', cliente_nome: 'Transferência Teste' }
+  })
+  const pedidoId = pedido?.id
+
+  await test('POST /pedidos/:id/transferir - rejeita sem mesa_destino_id', async () => {
+    const { status } = await api(`/pedidos/${pedidoId}/transferir`, {
+      method: 'POST', body: {}
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  await test('POST /pedidos/:id/transferir - transfere para mesa livre', async () => {
+    assert(pedidoId, 'Pedido deve existir')
+    assert(mesaBId, 'Mesa B deve existir')
+    const { status, data } = await api(`/pedidos/${pedidoId}/transferir`, {
+      method: 'POST', body: { mesa_destino_id: mesaBId }
+    })
+    assert(status === 200, `Status esperado 200, recebido ${status}`)
+    assert(data.mesa_id === mesaBId || data.mesa_id == mesaBId, `mesa_id esperado ${mesaBId}, recebido ${data.mesa_id}`)
+
+    // Verificar que mesa A ficou livre
+    const { data: mA } = await api(`/mesas/${mesaAId}`)
+    assert(mA.status === 'livre', `Mesa origem deve estar livre, está "${mA.status}"`)
+
+    // Verificar que mesa B ficou ocupada
+    const { data: mB } = await api(`/mesas/${mesaBId}`)
+    assert(mB.status === 'ocupada', `Mesa destino deve estar ocupada, está "${mB.status}"`)
+  })
+
+  await test('POST /pedidos/:id/transferir - rejeita para mesa ocupada', async () => {
+    // Mesa A agora está livre, colocar como ocupada criando pedido
+    await api(`/mesas/${mesaAId}/status`, { method: 'PUT', body: { status: 'ocupada' } })
+    const { status } = await api(`/pedidos/${pedidoId}/transferir`, {
+      method: 'POST', body: { mesa_destino_id: mesaAId }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+    // Restaurar mesa A para livre
+    await api(`/mesas/${mesaAId}/status`, { method: 'PUT', body: { status: 'livre' } })
+  })
+
+  await test('POST /pedidos/:id/transferir - rejeita pedido inexistente', async () => {
+    const { status } = await api('/pedidos/99999/transferir', {
+      method: 'POST', body: { mesa_destino_id: mesaAId }
+    })
+    assert(status === 404, `Status esperado 404, recebido ${status}`)
+  })
+
+  await test('POST /pedidos/:id/transferir - rejeita pedido fechado/cancelado', async () => {
+    // Cancelar o pedido
+    await api(`/pedidos/${pedidoId}/cancelar`, {
+      method: 'PUT', body: { motivo: 'Teste transferência cancelado', senha: 'admin123' }
+    })
+    const { status } = await api(`/pedidos/${pedidoId}/transferir`, {
+      method: 'POST', body: { mesa_destino_id: mesaAId }
+    })
+    assert(status === 400, `Status esperado 400, recebido ${status}`)
+  })
+
+  // Teste de acesso: garçom pode transferir
+  await test('POST /pedidos/:id/transferir - garçom pode transferir', async () => {
+    // Criar garçom, logar, criar pedido e transferir
+    const garcomEmail = `garcom.transf.${Date.now()}@teste.com`
+    await api('/auth/registro', {
+      method: 'POST', body: { nome: 'Garçom Transfer', email: garcomEmail, senha: 'garcom123', perfil: 'garcom' }
+    })
+    const { data: loginData } = await api('/auth/login', {
+      method: 'POST', body: { email: garcomEmail, senha: 'garcom123' }
+    })
+    const garcomToken = loginData?.token
+
+    // Limpar mesas e criar novo pedido
+    await api(`/mesas/${mesaBId}/status`, { method: 'PUT', body: { status: 'livre' } })
+    await api(`/mesas/${mesaAId}/status`, { method: 'PUT', body: { status: 'livre' } })
+
+    const savedToken = TOKEN
+    TOKEN = garcomToken
+
+    try {
+      const { data: pedidoG } = await api('/pedidos', {
+        method: 'POST', body: { mesa_id: mesaAId, tipo: 'mesa', cliente_nome: 'Garçom Transfer' }
+      })
+
+      if (pedidoG?.id) {
+        const { status } = await api(`/pedidos/${pedidoG.id}/transferir`, {
+          method: 'POST', body: { mesa_destino_id: mesaBId }
+        })
+        assert(status === 200, `Garçom deve conseguir transferir - status esperado 200, recebido ${status}`)
+
+        // Cancelar pedido para limpar
+        TOKEN = savedToken
+        await api(`/pedidos/${pedidoG.id}/cancelar`, {
+          method: 'PUT', body: { motivo: 'Limpeza', senha: 'admin123' }
+        })
+      } else {
+        assert(false, 'Garçom não conseguiu criar pedido')
+      }
+    } finally {
+      TOKEN = savedToken
+    }
+  })
+
+  // Limpar mesas de teste
+  await api(`/mesas/${mesaBId}/status`, { method: 'PUT', body: { status: 'livre' } })
+  await api(`/mesas/${mesaAId}/status`, { method: 'PUT', body: { status: 'livre' } })
+  if (mesaAId) await api(`/mesas/${mesaAId}`, { method: 'DELETE' })
+  if (mesaBId) await api(`/mesas/${mesaBId}`, { method: 'DELETE' })
+}
+
+// ─── 15. Relatórios ────────────────────────────────────────────────────────
 
 async function testRelatorios() {
   console.log('\n📊 RELATÓRIOS')
@@ -1127,7 +1483,7 @@ async function testRelatorios() {
   })
 }
 
-// ─── 13. Segurança ──────────────────────────────────────────────────────────
+// ─── 16. Segurança ──────────────────────────────────────────────────────────
 
 async function testSeguranca() {
   console.log('\n🛡️  SEGURANÇA')
@@ -1181,6 +1537,9 @@ async function runAllTests() {
   await testGarcons()
   await testProdutosCRUD()
   await testCancelamentoComSenha()
+  await testAreas()
+  await testMesasAreas()
+  await testTransferenciaMesa()
   await testRelatorios()
   await testSeguranca()
 

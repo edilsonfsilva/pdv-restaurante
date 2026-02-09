@@ -156,6 +156,28 @@ export const getRelatorioFormasPagamento = (params = {}) => {
   return request(`/relatorios/formas-pagamento${query ? `?${query}` : ''}`)
 }
 
+// Areas
+export const getAreas = () => request('/areas')
+export const getArea = (id) => request(`/areas/${id}`)
+export const criarArea = (data) =>
+  request('/areas', { method: 'POST', body: data })
+export const atualizarArea = (id, data) =>
+  request(`/areas/${id}`, { method: 'PUT', body: data })
+export const deletarArea = (id) =>
+  request(`/areas/${id}`, { method: 'DELETE' })
+
+// Mesas CRUD
+export const criarMesa = (data) =>
+  request('/mesas', { method: 'POST', body: data })
+export const atualizarMesa = (id, data) =>
+  request(`/mesas/${id}`, { method: 'PUT', body: data })
+export const deletarMesa = (id) =>
+  request(`/mesas/${id}`, { method: 'DELETE' })
+
+// Transferência
+export const transferirMesa = (pedidoId, mesa_destino_id) =>
+  request(`/pedidos/${pedidoId}/transferir`, { method: 'POST', body: { mesa_destino_id } })
+
 // Estoque
 export const getEstoque = (params = {}) => {
   const query = new URLSearchParams(params).toString()
